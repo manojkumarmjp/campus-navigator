@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Campus Navigator — Full</title>
+
+  <!-- A-Frame + AR.js -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
+
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:"Poppins",sans-serif}
+    body{
+      color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;
+      background:linear-gradient(-45deg,#0052D4,#4364F7,#6FB1FC,#00C6FF);
+      background-size:400% 400%;animation:gradientShift 10s ease infinite;
+    }
+    @keyframes gradientShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+
+    header{text-align:center;padding:28px;animation:fadeInDown 0.9s ease forwards}
+    header h1{font-size:2.2rem;margin-bottom:8px;text-shadow:0 0 10px rgba(255,255,255,0.4);animation:glowText 2s ease-in-out infinite alternate}
+    header p{opacity:.9}
+
+    @keyframes glowText{from{text-shadow:0 0 10px #6FB1FC}to{text-shadow:0 0 28px #00C6FF}}
+    @keyframes fadeInDown{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeInUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+
+    .ar-container{
+      position:relative;width:92%;max-width:980px;height:62vh;min-height:380px;margin-top:12px;
+      background:rgba(255,255,255,0.12);border-radius:16px;overflow:hidden;backdrop-filter:blur(10px);
+      box-shadow:0 10px 22px rgba(0,0,0,0.3);transform:translateY(34px);opacity:0;animation:floatUp 1.1s ease-out forwards .3s;
+    }
+    @keyframes floatUp{to{transform:translateY(0);opacity:1}}
+
+    #location-interface{
+      position:absolute;top:10px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.55);color:#fff;padding:10px 12px;border-radius:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;z-index:15;
+      backdrop-filter:blur(6px);
+    }
+    #location-interface select,#location-interface button{background:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:14px}
+
+    #routeInfo{width:100%;text-align:center;margin-top:4px;font-size:13px;color:#aaf}
+
+    #map-container{
+      position:absolute;top:10px;right:10px;width:320px;height:280px;background:rgba(255,255,255,0.97);border-radius:12px;overflow:hidden;z-index:15;box-shadow:0 4px 12px rgba(0,0,0,0.35);border:1px solid #ddd;
+    }
+    #map-title{background:#222;color:#fff;text-align:center;font-weight:700;padding:6px 8px;font-size:13px}
+    #mapSVG{width:100%;height:calc(100% - 34px);transition:transform .45s ease;transform-origin:center center}
+    text{font-family:sans-serif;font-size:14px;fill:#111;font-weight:700}
+
+    .ar-scene-wrapper{position:absolute;inset:0;z-index:1}
+    a-scene{width:100%;height:100%}
+
+    .events-section{margin-top:24px;width:92%;max-width:980px;background:rgba(255,255,255,0.1);border-radius:16px;padding:20px;box-shadow:0 6px 18px rgba(0,0,0,0.25);backdrop-filter:blur(10px);transform:translateY(40px);opacity:0;animation:fadeInUp 1s ease-out forwards .8s}
+    .events-section h2{text-align:center;margin-bottom:12px;font-size:1.5rem;text-shadow:0 0 10px rgba(255,255,255,0.5)}
+    .event{background:rgba(255,255,255,0.14);margin:12px 0;padding:14px;border-radius:12px;cursor:pointer;transition:all .35s ease;opacity:0;transform:translateY(22px);animation:eventEntry .7s ease forwards}
+    .event:nth-child(2){animation-delay:.12s}
+    .event:nth-child(3){animation-delay:.24s}
+    @keyframes eventEntry{to{opacity:1;transform:translateY(0)}}
+    .event:hover{transform:scale(1.02);background:rgba(255,255,255,0.26);box-shadow:0 0 20px rgba(0,198,255,0.4)}
+    .event h3{font-size:1.08rem;color:#fff;margin-bottom:6px}
+    .event p{opacity:.95;color:#eef}
+
+    .popup{display:none;position:fixed;bottom:18px;right:18px;background:#00C6FF;color:#fff;padding:12px 16px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,0.36);animation:slideUp .6s ease;z-index:50;font-weight:600}
+    @keyframes slideUp{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:60}
+    .modal-content{background:#fff;color:#222;padding:20px;border-radius:14px;max-width:480px;width:92%;text-align:left;box-shadow:0 8px 30px rgba(0,0,0,0.45)}
+    .modal-content h2{margin-bottom:8px}
+    .close-btn{display:inline-block;background:#0052D4;color:#fff;border:none;padding:10px 14px;border-radius:10px;cursor:pointer;margin-top:12px;font-weight:700}
+    .close-btn:hover{transform:scale(1.03)}
+
+    #eventNavigateBtn{
+      background:#22c55e !important;
+      margin-right:10px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Campus Navigator</h1>
+  <p>Navigate your campus and view upcoming events — AR guided with voice prompts.</p>
+</header>
+
+<section class="ar-container">
+
+  <div id="location-interface">
+    <label for="from">From:</label>
+    <select id="from">
+      <option value="canteen">Canteen</option>
+      <option value="library">Library</option>
+      <option value="admin">Admin Block</option>
+      <option value="office">Office</option>
+      <option value="sports">Sports Room</option>
+    </select>
+
+    <label for="to">To:</label>
+    <select id="to">
+      <option value="canteen">Canteen</option>
+      <option value="library">Library</option>
+      <option value="admin">Admin Block</option>
+      <option value="office">Office</option>
+      <option value="sports">Sports Room</option>
+    </select>
+
+    <!-- ⭐ UPDATED BUTTON BAR -->
+    <div class="ar-controls"
+         style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;">
+
+      <button id="navigateBtn"
+              style="background:#3b82f6;color:#fff;border:none;padding:8px 14px;
+                     border-radius:8px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+        ▶️ Navigate
+      </button>
+
+      <button id="startAR"
+              style="background:#22c55e;color:#fff;border:none;padding:8px 14px;
+                     border-radius:8px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+        📷 Start AR
+      </button>
+
+      <button id="stopAR"
+              style="background:#ef4444;color:#fff;border:none;padding:8px 14px;
+                     border-radius:8px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+        ⛔ Stop AR
+      </button>
+
+    </div>
+
+    <div id="routeInfo">Select route and tap “Navigate”.</div>
+  </div>
+
+  <!-- MINI MAP -->
+  <div id="map-container">
+    <div id="map-title">Campus Map</div>
+    <svg id="mapSVG" viewBox="0 0 1000 700">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="4" refY="2" orient="auto">
+          <path d="M0,0 L0,4 L4,2 Z" fill="#555"/>
+        </marker>
+        <marker id="arrowheadActive" markerWidth="10" markerHeight="10" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L5,3 Z" fill="#22c55e"/>
+        </marker>
+      </defs>
+
+      <!-- paths -->
+      <path id="path-canteen-library" d="M150 560 L400 160" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+      <path id="path-library-admin" d="M400 160 L820 200" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+      <path id="path-canteen-admin" d="M150 560 L820 200" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+      <path id="path-library-office" d="M400 160 L600 450" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+      <path id="path-office-sports" d="M600 450 L900 580" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+      <path id="path-canteen-sports" d="M150 560 L900 580" stroke="#999" stroke-width="5" fill="none" marker-end="url(#arrowhead)"/>
+
+      <!-- nodes -->
+      <circle id="canteen" cx="150" cy="560" r="30" fill="#38bdf8" stroke="#0a0a0a" stroke-width="2"></circle>
+      <circle id="library" cx="400" cy="160" r="30" fill="#38bdf8" stroke="#0a0a0a" stroke-width="2"></circle>
+      <circle id="admin" cx="820" cy="200" r="30" fill="#38bdf8" stroke="#0a0a0a" stroke-width="2"></circle>
+      <circle id="office" cx="600" cy="450" r="30" fill="#38bdf8" stroke="#0a0a0a" stroke-width="2"></circle>
+      <circle id="sports" cx="900" cy="580" r="30" fill="#38bdf8" stroke="#0a0a0a" stroke-width="2"></circle>
+
+      <!-- labels -->
+      <text x="400" y="120" text-anchor="middle">📚 Library</text>
+      <text x="820" y="260" text-anchor="middle">🏛️ Admin Block</text>
+      <text x="150" y="620" text-anchor="middle">🍴 Canteen</text>
+      <text x="600" y="510" text-anchor="middle">🏢 Office</text>
+      <text x="900" y="640" text-anchor="middle">🏀 Sports Room</text>
+    </svg>
+  </div>
+
+  <!-- AR SCENE -->
+  <div class="ar-scene-wrapper">
+    <a-scene id="scene" embedded vr-mode-ui="enabled: false"
+      renderer="logarithmicDepthBuffer: true; antialias: true;"
+      arjs="sourceType: webcam; debugUIEnabled: false; videoTexture: true;"
+      device-orientation-permission-ui="enabled: true">
+
+      <a-entity id="tick-fix"></a-entity>
+
+      <a-entity id="arrow-container" ground-arrows></a-entity>
+
+      <a-entity light="type: ambient; color: #fff; intensity: 0.8"></a-entity>
+      <a-entity light="type: directional; color: #fff; intensity: 1" position="0 1 1"></a-entity>
+
+      <a-entity camera></a-entity>
+    </a-scene>
+  </div>
+</section>
+
+<!-- EVENTS -->
+<section class="events-section">
+  <h2>Upcoming Campus Events</h2>
+
+  <div class="event" data-title="Book Fest 2025" data-date="12th November 2025"
+       data-location="library"
+       data-details="The annual Book Fest promotes reading and learning. Join and showcase your talent!">
+    <h3>Book Fest 2025</h3>
+    <p>📅 12th November 2025 | 📍 Library</p>
+  </div>
+
+  <div class="event" data-title="Sports Meet" data-date="15th November 2025"
+       data-location="sports"
+       data-details="Inter-departmental competition featuring cricket, football, and athletics.">
+    <h3>Sports Meet</h3>
+    <p>📅 15th November 2025 | 📍 Sports Room</p>
+  </div>
+
+  <div class="event" data-title="College Student Council Election"
+       data-date="20th November 2025"
+       data-location="admin"
+       data-details="Encourages leadership and participation in college affairs.">
+    <h3>College Student Council Election</h3>
+    <p>📅 20th November 2025 | 📍 Admin Block</p>
+  </div>
+</section>
+
+<!-- Popup -->
+<div id="eventPopup" class="popup"></div>
+
+<!-- Modal -->
+<div id="eventModal" class="modal">
+  <div class="modal-content">
+    <h2 id="modalTitle"></h2>
+    <p id="modalDate"></p>
+    <p id="modalLocation"></p>
+    <p id="modalDetails"></p>
+
+    <button class="close-btn" id="eventNavigateBtn">Navigate</button>
+    <button class="close-btn" id="closeModal">Close</button>
+  </div>
+</div>
+
+<script>
+/* ===================== VOICE ===================== */
+let preferredFemaleVoice = null;
+function loadVoicesAndPickFemale() {
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return;
+  const femaleHints = ["female","woman","samantha","sofia","emma","olivia","sara","zira","kate"];
+  for (const v of voices) {
+    const info = `${v.name} ${v.lang}`.toLowerCase();
+    if (femaleHints.some(h => info.includes(h))) { preferredFemaleVoice = v; break; }
+  }
+  if (!preferredFemaleVoice) preferredFemaleVoice = voices[0];
+}
+speechSynthesis.onvoiceschanged = loadVoicesAndPickFemale;
+loadVoicesAndPickFemale();
+
+function speak(msg) {
+  if (!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(msg);
+  if (preferredFemaleVoice) u.voice = preferredFemaleVoice;
+  u.rate = 0.95; u.pitch = 1.05;
+  speechSynthesis.speak(u);
+}
+
+/* ===================== GRAPH ===================== */
+const campusGraph = {
+  canteen:["library","admin","sports"],
+  library:["canteen","admin","office"],
+  admin:["library","canteen"],
+  office:["library","sports"],
+  sports:["office","canteen"]
+};
+
+const DISPLAY_NAME={
+  canteen:"Canteen",
+  library:"Library",
+  admin:"Admin Block",
+  office:"Office",
+  sports:"Sports Room"
+};
+
+function bfsPath(start, goal) {
+  if (start===goal) return [start];
+  const q=[[start]];
+  const visited=new Set([start]);
+  while(q.length){
+    const path=q.shift();
+    const last=path[path.length-1];
+    if(last===goal) return path;
+    for(const n of campusGraph[last]){
+      if(!visited.has(n)){
+        visited.add(n);
+        q.push([...path,n]);
+      }
+    }
+  }
+  return null;
+}
+
+function findShortestPath(start, goal){
+  if(start===goal) return [start];
+  if(start==="library" && goal==="sports"){
+    const a=bfsPath("library","office");
+    const b=bfsPath("office","sports");
+    if(a&&b) return [...a,...b.slice(1)];
+  }
+  return bfsPath(start,goal);
+}
+
+const TURN_DIRECTIONS={
+  "canteen-library-admin":"right",
+  "admin-library-office":"right",
+  "library-office-sports":"right",
+  "canteen-admin-library":"left",
+};
+
+function getTurn(route,i){
+  if(i<1||i>=route.length-1) return null;
+  return TURN_DIRECTIONS[`${route[i-1]}-${route[i]}-${route[i+1]}`] || null;
+}
+
+function generateRouteGuidance(route){
+  if(route.length<2) return "";
+  if(route.length===2) return `Go straight to ${DISPLAY_NAME[route[1]]}.`;
+  const parts=[];
+  parts.push(`Go straight to ${DISPLAY_NAME[route[1]]}`);
+  for(let i=1;i<route.length-1;i++){
+    const t=getTurn(route,i);
+    const next=DISPLAY_NAME[route[i+1]];
+    if(t) parts.push(`then turn ${t} to ${next}`);
+    else parts.push(`then continue to ${next}`);
+  }
+  return parts.join(", ")+"."; 
+}
+
+/* ===================== MAP HIGHLIGHT ===================== */
+function highlightShortestRoute(route){
+  document.querySelectorAll("#mapSVG path").forEach(p=>{
+    p.setAttribute("stroke","#777");
+    p.style.opacity=".3";
+    p.setAttribute("stroke-width","5");
+  });
+  for(let i=0;i<route.length-1;i++){
+    let id=`path-${route[i]}-${route[i+1]}`;
+    if(!document.getElementById(id)) id=`path-${route[i+1]}-${route[i]}`;
+    const p=document.getElementById(id);
+    if(p){
+      p.setAttribute("stroke","#22c55e");
+      p.style.opacity="1";
+      p.setAttribute("stroke-width","8");
+    }
+  }
+}
+/* ===================== AR ARROWS ===================== */
+AFRAME.registerComponent("ground-arrows", {
+  init:function(){
+    this.arrows=[];
+    this.navigationActive=false;
+    this.currentRoute=[];
+    this.currentLeg=0;
+    this.turnShown=false;
+    this.spawnDelay=600;
+    this.lastSpawnTime=performance.now();
+    this.moveSpeed=1.8;
+    this.turnDelayCounter=0;
+    this.turnDelayThreshold=6;
+
+    const container=this.el;
+
+    const createArrow=(color)=>{
+      const a=document.createElement("a-entity");
+      const body=document.createElement("a-cylinder");
+      body.setAttribute("color",color);
+      body.setAttribute("height","0.8");
+      body.setAttribute("radius","0.06");
+      body.setAttribute("position","0 -0.3 0");
+      const tip=document.createElement("a-cone");
+      tip.setAttribute("color",color);
+      tip.setAttribute("height","0.35");
+      tip.setAttribute("radius-bottom","0.14");
+      tip.setAttribute("position","0 0.2 0");
+      a.appendChild(body);
+      a.appendChild(tip);
+      a.setAttribute("position",{x:0,y:-1,z:-2.4});
+      a.setAttribute("rotation","-90 0 0");
+      container.appendChild(a);
+      this.arrows.push(a);
+    };
+
+    const showTurn=(dir)=>{
+      if(this.turnShown) return;
+      this.turnShown=true;
+      speak(dir==="right"?"Turn right":"Turn left");
+
+      const t=document.createElement("a-torus");
+      t.setAttribute("arc","120");
+      t.setAttribute("radius","0.55");
+      t.setAttribute("radius-tubular","0.04");
+      t.setAttribute("color","#22c55e");
+      t.setAttribute("position","0 -1 -2.8");
+      t.setAttribute("rotation",dir==="right"?"90 0 0":"90 180 0");
+      t.setAttribute("scale","0 0 0");
+      container.appendChild(t);
+
+      let s=0;
+      const int=setInterval(()=>{
+        s+=0.12;
+        t.setAttribute("scale",`${s} ${s} ${s}`);
+        if(s>=1){
+          clearInterval(int);
+          setTimeout(()=>t.remove(),1600);
+        }
+      },45);
+    };
+
+    this.tick=(t,dt)=>{
+      if(!this.navigationActive) return;
+      const d=dt/1000;
+      this.arrows.forEach(a=>{
+        a.object3D.position.z+=d*this.moveSpeed;
+      });
+      this.arrows=this.arrows.filter(a=>{
+        if(a.object3D.position.z>2.5){a.remove(); return false;}
+        return true;
+      });
+
+      if(t-this.lastSpawnTime>this.spawnDelay){
+        this.lastSpawnTime=t;
+
+        const eventMode=window.__eventModeActive===true;
+        createArrow(eventMode?"#22c55e":"#00ccff");
+
+        const dir=getTurn(this.currentRoute,this.currentLeg+1);
+
+        if(dir==="right" && this.currentRoute.join("-")==="library-office-sports"){
+          this.turnDelayCounter++;
+          if(!this.turnShown && this.turnDelayCounter>=this.turnDelayThreshold){
+            showTurn("right");
+          }
+        } else if(dir && !this.turnShown){
+          showTurn(dir);
+        }
+        this.currentLeg++;
+      }
+    };
+
+    document.getElementById("navigateBtn").addEventListener("click",()=>{
+      const from=document.getElementById("from").value;
+      const to=document.getElementById("to").value;
+      const info=document.getElementById("routeInfo");
+
+      if(from===to){
+        info.textContent="⚠️ Please select DIFFERENT locations.";
+        info.style.color="red";
+        speak("Please select different locations.");
+        return;
+      }
+
+      const route=findShortestPath(from,to);
+      if(!route){
+        info.textContent="No route found.";
+        info.style.color="red";
+        speak("Route not found.");
+        return;
+      }
+
+      highlightShortestRoute(route);
+      info.textContent=`Route: ${route.join(" → ")}`;
+      info.style.color="#aaf";
+
+      speak(`Navigation started from ${DISPLAY_NAME[from]} to ${DISPLAY_NAME[to]}. ${generateRouteGuidance(route)}`);
+
+      this.currentRoute=route;
+      this.currentLeg=0;
+      this.turnShown=false;
+      this.navigationActive=true;
+      this.turnDelayCounter=0;
+
+      this.arrows.forEach(a=>a.remove());
+      this.arrows=[];
+      this.lastSpawnTime=performance.now();
+
+      startAR();
+    });
+  }
+});
+
+/* ===================== AR CONTROL ===================== */
+const sceneEl=document.getElementById("scene");
+function startAR(){ if(!sceneEl.isPlaying) sceneEl.play(); }
+function stopAR(){
+  try{
+    const ar=sceneEl.systems["arjs"];
+    if(ar && ar.arSource && ar.arSource.domElement){
+      const vid=ar.arSource.domElement;
+      if(vid.srcObject){
+        vid.srcObject.getTracks().forEach(t=>t.stop());
+        vid.srcObject=null;
+      }
+    }
+  }catch(e){}
+  sceneEl.pause();
+}
+document.getElementById("startAR").addEventListener("click",startAR);
+document.getElementById("stopAR").addEventListener("click",stopAR);
+
+/* ===================== POPUP ===================== */
+const popup=document.getElementById("eventPopup");
+const msgs=[
+  "🎉 Tech Fest 2025 starts soon!",
+  "🏅 Sports Meet begins November 15!",
+  "🎭 Cultural Night lights up November 20!"
+];
+let idx=0;
+window.addEventListener("load",()=>{
+  setTimeout(()=>{
+    popup.textContent=msgs[idx++]; popup.style.display="block";
+    setTimeout(()=>popup.style.display="none",3500);
+    const int=setInterval(()=>{
+      if(idx<msgs.length){
+        popup.textContent=msgs[idx++];
+        popup.style.display="block";
+        setTimeout(()=>popup.style.display="none",3500);
+      } else clearInterval(int);
+    },6000);
+  },1000);
+});
+
+/* ===================== MODAL HANDLING ===================== */
+const modal=document.getElementById("eventModal");
+const routeInfo=document.getElementById("routeInfo");
+
+function smoothCloseModal(){
+  modal.classList.add("modal-fadeout");
+  setTimeout(()=>{
+    modal.style.display="none";
+    modal.classList.remove("modal-fadeout");
+  },1200);
+}
+
+/* OPEN MODAL on event click */
+document.querySelectorAll(".event").forEach(ev=>{
+  ev.addEventListener("click",()=>{
+    document.getElementById("modalTitle").textContent=ev.dataset.title;
+    document.getElementById("modalDate").textContent="📅 "+ev.dataset.date;
+    document.getElementById("modalLocation").textContent="📍 "+ev.dataset.location;
+    document.getElementById("modalDetails").textContent=ev.dataset.details;
+
+    modal.style.display="flex";
+
+    const from=document.getElementById("from").value;
+    const to=ev.dataset.location.toLowerCase();
+
+    if(from===to){
+      speak("You are already at this location.");
+      routeInfo.textContent="⚠️ You are already at this location.";
+      routeInfo.style.color="red";
+      return;
+    }
+
+    document.getElementById("to").value=to;
+  });
+});
+
+/* CLOSE BUTTON */
+document.getElementById("closeModal").addEventListener("click",smoothCloseModal);
+
+/* CLICK OUTSIDE CLOSES MODAL */
+window.addEventListener("click",e=>{ if(e.target===modal) smoothCloseModal(); });
+
+/* ===================== EVENT NAVIGATE BUTTON (NEW) ===================== */
+document.getElementById("eventNavigateBtn").addEventListener("click",()=>{
+
+  const from=document.getElementById("from").value;
+  const to=document.getElementById("modalLocation").textContent.replace("📍","").trim().toLowerCase();
+
+  if(from===to){
+    speak("You are already at this location.");
+    routeInfo.textContent="⚠️ You are already at this location.";
+    routeInfo.style.color="red";
+    return;
+  }
+
+  document.getElementById("to").value=to;
+
+  const route=findShortestPath(from,to);
+  if(!route){
+    routeInfo.textContent="No route found.";
+    routeInfo.style.color="red";
+    speak("Route not found.");
+    return;
+  }
+
+  highlightShortestRoute(route);
+  routeInfo.textContent=`Route: ${route.join(" → ")}`;
+  routeInfo.style.color="#aaf";
+
+  const nav=document.querySelector("[ground-arrows]").components["ground-arrows"];
+  nav.currentRoute=route;
+  nav.currentLeg=0;
+  nav.turnShown=false;
+  nav.navigationActive=true;
+  nav.turnDelayCounter=0;
+  nav.arrows.forEach(a=>a.remove());
+  nav.arrows=[];
+  nav.lastSpawnTime=performance.now();
+
+  speak(`Navigation started from ${DISPLAY_NAME[from]} to ${DISPLAY_NAME[to]}. ${generateRouteGuidance(route)}`);
+
+  window.__eventModeActive=true;
+  startAR();
+
+  smoothCloseModal();
+});
+
+/* STOP AR WHEN PAGE CLOSES */
+window.addEventListener("beforeunload",()=>stopAR());
+</script>
+
+</body>
+</html>
